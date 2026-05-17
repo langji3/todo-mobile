@@ -10,6 +10,7 @@ dist/
 web-build/
 
 # Native
+/android/
 *.jks
 *.keystore
 *.p8
@@ -17,15 +18,6 @@ web-build/
 *.key
 *.mobileprovision
 *.orig.*
-
-# Android local/build outputs
-/android/local.properties
-/android/.gradle/
-/android/.kotlin/
-/android/build/
-/android/app/build/
-/android/app/.cxx/
-/android/app/release/
 *.apk
 *.aab
 *.ap_
