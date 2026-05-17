@@ -7,6 +7,7 @@ import {
   Switch,
   Alert,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -19,28 +20,60 @@ import {
   Image as ImageIcon,
   X,
 } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Colors } from '@/constants/colors';
 import { Theme } from '@/constants/theme';
 import { useUserStore } from '@/store/useUserStore';
-import { useTodoStore } from '@/store/useTodoStore';
+import { useAuth } from '@/contexts/AuthContext';
+import { uploadAvatar } from '@/services/users';
 import Avatar from '@/components/ui/Avatar';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const { user, settings, toggleDarkMode, toggleNotifications, logout, updateAvatar } = useUserStore();
+  const { user, signOut, updateUser } = useAuth();
+  const { settings, toggleDarkMode, toggleNotifications } = useUserStore();
   const [showAvatarMenu, setShowAvatarMenu] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const handleLogout = () => {
-    Alert.alert('确认退出登录', '确定要退出登录吗？', [
-      { text: '取消', style: 'cancel' },
-      { text: '退出', style: 'destructive', onPress: logout },
-    ]);
+    setShowLogoutConfirm(true);
   };
 
-  const handleSelectAvatar = (type: 'camera' | 'gallery') => {
-    // Mock avatar selection
-    updateAvatar(type === 'camera' ? 'https://i.pravatar.cc/150?img=12' : 'https://i.pravatar.cc/150?img=33');
-    setShowAvatarMenu(false);
+  const handlePickImage = async (useCamera: boolean) => {
+    try {
+      if (useCamera) {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('提示', '需要相机权限才能拍照');
+          return;
+        }
+      } else {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('提示', '需要相册权限才能选择图片');
+          return;
+        }
+      }
+
+      const result = useCamera
+        ? await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.8 })
+        : await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+
+      if (result.canceled || !result.assets?.[0]) return;
+
+      setShowAvatarMenu(false);
+      setUploading(true);
+      const asset = result.assets[0];
+      const avatarUrl = await uploadAvatar(asset.uri, asset.mimeType, asset.fileName);
+      if (user) {
+        updateUser({ ...user, avatar: avatarUrl });
+      }
+    } catch (e: any) {
+      Alert.alert('上传失败', e.message || '请重试');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const settingsItems = [
@@ -90,7 +123,13 @@ export default function SettingsScreen() {
 
       <View style={styles.profileSection}>
         <Pressable onPress={() => setShowAvatarMenu(true)}>
-          <Avatar uri={user?.avatar} size={Theme.avatar.large} />
+          {uploading ? (
+            <View style={[styles.avatarLoading, { width: Theme.avatar.large, height: Theme.avatar.large, borderRadius: Theme.avatar.large / 2 }]}>
+              <ActivityIndicator color={Colors.primary} />
+            </View>
+          ) : (
+            <Avatar uri={user?.avatar} size={Theme.avatar.large} />
+          )}
         </Pressable>
         <Text style={styles.changeAvatarText}>点击更换头像</Text>
         <Text style={styles.userName}>{user?.name || '用户'}</Text>
@@ -131,17 +170,35 @@ export default function SettingsScreen() {
                 <X size={20} color={Colors.textSecondary} />
               </Pressable>
             </View>
-            <Pressable style={styles.modalOption} onPress={() => handleSelectAvatar('camera')}>
+            <Pressable style={styles.modalOption} onPress={() => handlePickImage(true)}>
               <Camera size={20} color={Colors.textPrimary} />
               <Text style={styles.modalOptionText}>拍照</Text>
             </Pressable>
-            <Pressable style={styles.modalOption} onPress={() => handleSelectAvatar('gallery')}>
+            <Pressable style={styles.modalOption} onPress={() => handlePickImage(false)}>
               <ImageIcon size={20} color={Colors.textPrimary} />
               <Text style={styles.modalOptionText}>从相册选择</Text>
             </Pressable>
             <Pressable style={styles.modalCancel} onPress={() => setShowAvatarMenu(false)}>
               <Text style={styles.modalCancelText}>取消</Text>
             </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Logout Confirm Modal */}
+      <Modal visible={showLogoutConfirm} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>确认退出登录</Text>
+            <Text style={styles.logoutDesc}>确定要退出登录吗？</Text>
+            <View style={styles.logoutActions}>
+              <Pressable style={styles.logoutCancelBtn} onPress={() => setShowLogoutConfirm(false)}>
+                <Text style={styles.logoutCancelText}>取消</Text>
+              </Pressable>
+              <Pressable style={styles.logoutConfirmBtn} onPress={() => { setShowLogoutConfirm(false); signOut(); }}>
+                <Text style={styles.logoutConfirmText}>退出</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
@@ -167,6 +224,11 @@ const styles = StyleSheet.create({
   profileSection: {
     alignItems: 'center',
     paddingVertical: Theme.spacing.large,
+  },
+  avatarLoading: {
+    backgroundColor: Colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   changeAvatarText: {
     fontSize: Theme.fontSize.auxiliary,
@@ -267,5 +329,40 @@ const styles = StyleSheet.create({
   modalCancelText: {
     fontSize: Theme.fontSize.body,
     color: Colors.textSecondary,
+  },
+  logoutDesc: {
+    fontSize: Theme.fontSize.body,
+    color: Colors.textSecondary,
+    marginTop: 8,
+    marginBottom: 24,
+  },
+  logoutActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  logoutCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: Theme.borderRadius.button,
+    borderWidth: 1,
+    borderColor: Colors.divider,
+    alignItems: 'center',
+  },
+  logoutCancelText: {
+    fontSize: Theme.fontSize.body,
+    color: Colors.textSecondary,
+    fontWeight: Theme.fontWeight.medium,
+  },
+  logoutConfirmBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: Theme.borderRadius.button,
+    backgroundColor: Colors.danger,
+    alignItems: 'center',
+  },
+  logoutConfirmText: {
+    fontSize: Theme.fontSize.body,
+    color: Colors.white,
+    fontWeight: Theme.fontWeight.medium,
   },
 });

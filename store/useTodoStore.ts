@@ -1,164 +1,136 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Todo, Category } from '@/types';
-import { DEFAULT_CATEGORIES, getMockTodos } from '@/constants/mock';
-import { formatDate } from '@/utils/date';
+import * as todosApi from '@/services/todos';
+import * as categoriesApi from '@/services/categories';
 import { RandomCategoryColors } from '@/constants/colors';
 
 interface TodoState {
   todos: Todo[];
   categories: Category[];
-  initialized: boolean;
+  loading: boolean;
 }
 
 interface TodoActions {
-  initMockData: () => void;
-  addTodo: (todo: Omit<Todo, 'id' | 'createdAt'>) => Todo;
-  updateTodo: (id: string, updates: Partial<Omit<Todo, 'id'>>) => void;
-  deleteTodo: (id: string) => void;
-  toggleComplete: (id: string) => void;
+  fetchTodos: () => Promise<void>;
+  fetchCategories: () => Promise<void>;
+  addTodo: (todo: Omit<Todo, 'id' | 'createdAt'>) => Promise<Todo>;
+  updateTodo: (id: string, updates: Partial<Omit<Todo, 'id'>>) => Promise<void>;
+  deleteTodo: (id: string) => Promise<void>;
+  toggleComplete: (id: string) => Promise<void>;
   getTodosByDate: (date: string) => Todo[];
   getTodosByCategoryAndDate: (categoryId: string | null, date: string) => Todo[];
   getTodoCountByCategoryAndDate: (categoryId: string | null, date: string) => number;
-  addCategory: (name: string) => Category;
-  updateCategory: (id: string, updates: Partial<Category>) => void;
-  deleteCategory: (id: string) => boolean;
+  addCategory: (name: string) => Promise<Category>;
+  updateCategory: (id: string, updates: Partial<Category>) => Promise<void>;
+  deleteCategory: (id: string) => Promise<boolean>;
   getCategoryById: (id: string) => Category | undefined;
   canDeleteCategory: (id: string) => boolean;
 }
 
-export const useTodoStore = create<TodoState & TodoActions>()(
-  persist(
-    (set, get) => ({
-      todos: [],
-      categories: [],
-      initialized: false,
+export const useTodoStore = create<TodoState & TodoActions>()((set, get) => ({
+  todos: [],
+  categories: [],
+  loading: false,
 
-      initMockData: () => {
-        const state = get();
-        const today = formatDate(new Date());
-        const mockIds = new Set(['todo-1', 'todo-2', 'todo-3', 'todo-4']);
-
-        if (!state.initialized || state.todos.length === 0) {
-          set({
-            todos: getMockTodos(),
-            categories: DEFAULT_CATEGORIES,
-            initialized: true,
-          });
-          return;
-        }
-
-        // 更新已有 mock 任务的日期为今天
-        const hasOldMockTodos = state.todos.some(
-          (t) => mockIds.has(t.id) && t.date !== today
-        );
-        if (hasOldMockTodos) {
-          set({
-            todos: state.todos.map((t) =>
-              mockIds.has(t.id) ? { ...t, date: today } : t
-            ),
-          });
-        }
-      },
-
-      addTodo: (todoData) => {
-        const newTodo: Todo = {
-          ...todoData,
-          id: `todo-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          createdAt: Date.now(),
-        };
-        set((state) => ({ todos: [newTodo, ...state.todos] }));
-        return newTodo;
-      },
-
-      updateTodo: (id, updates) => {
-        set((state) => ({
-          todos: state.todos.map((t) => (t.id === id ? { ...t, ...updates } : t)),
-        }));
-      },
-
-      deleteTodo: (id) => {
-        set((state) => ({
-          todos: state.todos.filter((t) => t.id !== id),
-        }));
-      },
-
-      toggleComplete: (id) => {
-        set((state) => ({
-          todos: state.todos.map((t) =>
-            t.id === id ? { ...t, completed: !t.completed } : t
-          ),
-        }));
-      },
-
-      getTodosByDate: (date) => {
-        return get().todos.filter((t) => t.date === date);
-      },
-
-      getTodosByCategoryAndDate: (categoryId, date) => {
-        return get().todos.filter(
-          (t) => t.date === date && (categoryId ? t.categoryId === categoryId : true)
-        );
-      },
-
-      getTodoCountByCategoryAndDate: (categoryId, date) => {
-        return get().todos.filter(
-          (t) => t.date === date && (categoryId ? t.categoryId === categoryId : true)
-        ).length;
-      },
-
-      addCategory: (name) => {
-        const usedColors = get().categories.map((c) => c.color);
-        const availableColors = RandomCategoryColors.filter(
-          (c) => !usedColors.includes(c)
-        );
-        const color =
-          availableColors.length > 0
-            ? availableColors[0]
-            : RandomCategoryColors[Math.floor(Math.random() * RandomCategoryColors.length)];
-
-        const newCategory: Category = {
-          id: `cat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          name,
-          color,
-        };
-        set((state) => ({ categories: [...state.categories, newCategory] }));
-        return newCategory;
-      },
-
-      updateCategory: (id, updates) => {
-        set((state) => ({
-          categories: state.categories.map((c) =>
-            c.id === id ? { ...c, ...updates } : c
-          ),
-        }));
-      },
-
-      deleteCategory: (id) => {
-        if (!get().canDeleteCategory(id)) return false;
-        set((state) => ({
-          categories: state.categories.filter((c) => c.id !== id),
-        }));
-        return true;
-      },
-
-      getCategoryById: (id) => {
-        return get().categories.find((c) => c.id === id);
-      },
-
-      canDeleteCategory: (id) => {
-        return !get().todos.some((t) => t.categoryId === id);
-      },
-    }),
-    {
-      name: 'todo-storage',
-      storage: createJSONStorage(() => AsyncStorage),
-      partialize: (state) => ({
-        todos: state.todos,
-        categories: state.categories,
-        initialized: state.initialized,
-      }),
+  fetchTodos: async () => {
+    set({ loading: true });
+    try {
+      const result = await todosApi.getTodos({ pageSize: 1000 });
+      set({ todos: result.list, loading: false });
+    } catch {
+      set({ loading: false });
     }
-  )
-);
+  },
+
+  fetchCategories: async () => {
+    try {
+      const cats = await categoriesApi.getCategories();
+      set({ categories: cats });
+    } catch {
+      // ignore
+    }
+  },
+
+  addTodo: async (todoData) => {
+    const newTodo = await todosApi.createTodo(todoData);
+    set((state) => ({ todos: [newTodo, ...state.todos] }));
+    return newTodo;
+  },
+
+  updateTodo: async (id, updates) => {
+    const updated = await todosApi.updateTodo(id, updates);
+    set((state) => ({
+      todos: state.todos.map((t) => (t.id === id ? updated : t)),
+    }));
+  },
+
+  deleteTodo: async (id) => {
+    await todosApi.deleteTodo(id);
+    set((state) => ({
+      todos: state.todos.filter((t) => t.id !== id),
+    }));
+  },
+
+  toggleComplete: async (id) => {
+    const updated = await todosApi.toggleTodo(id);
+    set((state) => ({
+      todos: state.todos.map((t) => (t.id === id ? updated : t)),
+    }));
+  },
+
+  getTodosByDate: (date) => {
+    return get().todos.filter((t) => t.date === date);
+  },
+
+  getTodosByCategoryAndDate: (categoryId, date) => {
+    return get().todos.filter(
+      (t) => t.date === date && (categoryId ? t.categoryId === categoryId : true)
+    );
+  },
+
+  getTodoCountByCategoryAndDate: (categoryId, date) => {
+    return get().getTodosByCategoryAndDate(categoryId, date).length;
+  },
+
+  addCategory: async (name) => {
+    const usedColors = get().categories.map((c) => c.color);
+    const availableColors = RandomCategoryColors.filter(
+      (c) => !usedColors.includes(c)
+    );
+    const color =
+      availableColors.length > 0
+        ? availableColors[0]
+        : RandomCategoryColors[Math.floor(Math.random() * RandomCategoryColors.length)];
+
+    const newCategory = await categoriesApi.createCategory({ name, color });
+    set((state) => ({ categories: [...state.categories, newCategory] }));
+    return newCategory;
+  },
+
+  updateCategory: async (id, updates) => {
+    const updated = await categoriesApi.updateCategory(id, {
+      name: updates.name || '',
+      color: updates.color,
+    });
+    set((state) => ({
+      categories: state.categories.map((c) => (c.id === id ? updated : c)),
+    }));
+  },
+
+  deleteCategory: async (id) => {
+    if (!get().canDeleteCategory(id)) return false;
+    await categoriesApi.deleteCategory(id);
+    set((state) => ({
+      categories: state.categories.filter((c) => c.id !== id),
+    }));
+    return true;
+  },
+
+  getCategoryById: (id) => {
+    return get().categories.find((c) => c.id === id);
+  },
+
+  canDeleteCategory: (id) => {
+    return !get().todos.some((t) => t.categoryId === id);
+  },
+}));

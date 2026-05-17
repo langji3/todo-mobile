@@ -8,6 +8,8 @@ import {
   TextInput,
   Alert,
   TouchableWithoutFeedback,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -32,7 +34,7 @@ import {
 import { Colors } from '@/constants/colors';
 import { Theme } from '@/constants/theme';
 import { useTodoStore } from '@/store/useTodoStore';
-import { useUserStore } from '@/store/useUserStore';
+import { useAuth } from '@/contexts/AuthContext';
 import Avatar from '@/components/ui/Avatar';
 import { Category } from '@/types';
 import { formatDate } from '@/utils/date';
@@ -59,7 +61,7 @@ export default function CategoryDrawer({
   onNavigateToSettings,
 }: CategoryDrawerProps) {
   const { categories, getTodoCountByCategoryAndDate, addCategory, updateCategory, deleteCategory, canDeleteCategory } = useTodoStore();
-  const { user } = useUserStore();
+  const { user } = useAuth();
   const today = formatDate(new Date());
 
   const translateX = useSharedValue(-DRAWER_WIDTH);
@@ -210,7 +212,10 @@ export default function CategoryDrawer({
 
       {/* Add Category Modal */}
       <Modal visible={showAddModal} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>添加分类</Text>
             <TextInput
@@ -230,12 +235,15 @@ export default function CategoryDrawer({
               </Pressable>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Edit Category Modal */}
       <Modal visible={!!editingCategory} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>管理分类</Text>
             <TextInput
@@ -266,7 +274,7 @@ export default function CategoryDrawer({
               </Pressable>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </Modal>
   );

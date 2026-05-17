@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, StyleSheet, Pressable } from 'react-native';
 import { Tabs, usePathname } from 'expo-router';
 import Animated, {
   useSharedValue,
@@ -18,6 +18,8 @@ import { useTaskSheet } from '@/contexts/TaskSheetContext';
 import TaskSheet from '@/components/sheets/TaskSheet';
 import { formatDate } from '@/utils/date';
 import { globalState } from '@/utils/global';
+import { useTodoStore } from '@/store/useTodoStore';
+import { useUserStore } from '@/store/useUserStore';
 
 const TAB_ICONS: Record<string, React.FC<{ color: string; size: number }>> = {
   index: LayoutDashboard,
@@ -25,15 +27,13 @@ const TAB_ICONS: Record<string, React.FC<{ color: string; size: number }>> = {
   settings: Settings,
 };
 
-const TAB_LABELS: Record<string, string> = {
-  index: '列表',
-  calendar: '日历',
-  settings: '设置',
-};
-
 export default function TabsLayout() {
   const pathname = usePathname();
   const { visible, editingTodo, initialDate, initialCategoryId, openNewTask, closeTaskSheet } = useTaskSheet();
+  const fetchTodos = useTodoStore((s) => s.fetchTodos);
+  const deleteTodo = useTodoStore((s) => s.deleteTodo);
+  const fetchCategories = useTodoStore((s) => s.fetchCategories);
+  const fetchSettings = useUserStore((s) => s.fetchSettings);
 
   const fabScale = useSharedValue(1);
   const fabOpacity = useSharedValue(1);
@@ -43,6 +43,10 @@ export default function TabsLayout() {
     opacity: showFab ? fabOpacity.value : 0,
     transform: [{ scale: showFab ? fabScale.value : 0.8 }],
   }));
+
+  useEffect(() => {
+    Promise.all([fetchTodos(), fetchCategories(), fetchSettings()]);
+  }, []);
 
   const handleFabPress = () => {
     if (pathname.includes('calendar')) {
@@ -88,11 +92,10 @@ export default function TabsLayout() {
         editingTodo={editingTodo}
         initialDate={initialDate}
         initialCategoryId={initialCategoryId}
-        onSave={() => {}}
+        onSave={() => fetchTodos()}
         onClose={closeTaskSheet}
         onDelete={editingTodo ? () => {
-          const { useTodoStore } = require('@/store/useTodoStore');
-          useTodoStore.getState().deleteTodo(editingTodo.id);
+          deleteTodo(editingTodo.id).then(closeTaskSheet);
         } : undefined}
       />
     </View>
@@ -113,11 +116,6 @@ const styles = StyleSheet.create({
   },
   tabItem: {
     paddingVertical: 4,
-  },
-  tabLabel: {
-    fontSize: 11,
-    fontWeight: Theme.fontWeight.medium,
-    marginTop: 2,
   },
   fabContainer: {
     position: 'absolute',

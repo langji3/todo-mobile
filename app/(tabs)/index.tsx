@@ -22,7 +22,7 @@ import CategoryDrawer from '@/components/drawers/CategoryDrawer';
 export default function TodayListScreen() {
   const today = formatDate(new Date());
   const insets = useSafeAreaInsets();
-  const { todos, categories, getCategoryById, toggleComplete, deleteTodo } = useTodoStore();
+  const { todos, categories, getCategoryById, toggleComplete, deleteTodo, fetchTodos } = useTodoStore();
   const { openEditTask } = useTaskSheet();
 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -33,10 +33,11 @@ export default function TodayListScreen() {
     (t) => t.date === today && (selectedCategory ? t.categoryId === selectedCategory : true)
   );
 
-  const handleRefresh = useCallback(() => {
+  const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
-  }, []);
+    await fetchTodos();
+    setRefreshing(false);
+  }, [fetchTodos]);
 
   const handleDrawerSelect = (categoryId: string | null) => {
     setSelectedCategory(categoryId);

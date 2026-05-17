@@ -5,18 +5,20 @@ import {
   StyleSheet,
   TextInput,
   Pressable,
-  Modal,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Alert,
+  BackHandler,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
+  useAnimatedKeyboard,
   withTiming,
-  withSpring,
   runOnJS,
+  type SharedValue,
 } from 'react-native-reanimated';
 import {
   Gesture,
@@ -32,6 +34,33 @@ import DatePickerSheet from './DatePickerSheet';
 import CategoryPickerSheet from './CategoryPickerSheet';
 
 const SHEET_HEIGHT = 340;
+
+interface KeyboardAwareSheetProps {
+  translateY: SharedValue<number>;
+  bottomInset: number;
+  children: React.ReactNode;
+}
+
+function KeyboardAwareSheet({ translateY, bottomInset, children }: KeyboardAwareSheetProps) {
+  const keyboard = useAnimatedKeyboard({
+    isStatusBarTranslucentAndroid: false,
+    isNavigationBarTranslucentAndroid: false,
+  });
+
+  const sheetStyle = useAnimatedStyle(() => {
+    const keyboardLift = Platform.OS === 'android' ? keyboard.height.value : 0;
+
+    return {
+      transform: [{ translateY: translateY.value - keyboardLift }],
+    };
+  });
+
+  return (
+    <Animated.View style={[styles.sheet, sheetStyle, { paddingBottom: bottomInset + 8 }]}>
+      {children}
+    </Animated.View>
+  );
+}
 
 interface TaskSheetProps {
   visible: boolean;
@@ -60,7 +89,10 @@ export default function TaskSheet({
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(formatDate(new Date()));
   const [categoryId, setCategoryId] = useState(categories[0]?.id || '');
+  const [rendered, setRendered] = useState(visible);
   const titleRef = useRef<TextInput>(null);
+  const isKeyboardVisible = useRef(false);
+  const handleDismissRef = useRef<() => void>(() => {});
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
 
@@ -69,25 +101,102 @@ export default function TaskSheet({
 
   useEffect(() => {
     if (visible) {
-      if (isEditing && editingTodo) {
-        setTitle(editingTodo.title);
-        setDescription(editingTodo.description);
-        setDate(editingTodo.date);
-        setCategoryId(editingTodo.categoryId);
-      } else {
-        setTitle('');
-        setDescription('');
-        setDate(initialDate || formatDate(new Date()));
-        setCategoryId(initialCategoryId || categories[0]?.id || '');
+      setRendered(true);
+      return;
+    }
+
+    if (!rendered) return;
+
+    Keyboard.dismiss();
+    isKeyboardVisible.current = false;
+    translateY.value = withTiming(SHEET_HEIGHT, { duration: 200 }, (finished) => {
+      if (finished) {
+        runOnJS(setRendered)(false);
       }
+    });
+    overlayOpacity.value = withTiming(0, { duration: 200 });
+  }, [visible, rendered, overlayOpacity, translateY]);
+
+  useEffect(() => {
+    if (!visible || !rendered) return;
+
+    if (isEditing && editingTodo) {
+      setTitle(editingTodo.title);
+      setDescription(editingTodo.description);
+      setDate(editingTodo.date);
+      setCategoryId(editingTodo.categoryId);
+    } else {
+      setTitle('');
+      setDescription('');
+      setDate(initialDate || formatDate(new Date()));
+      setCategoryId(initialCategoryId || categories[0]?.id || '');
+    }
+
+    translateY.value = SHEET_HEIGHT;
+    overlayOpacity.value = 0;
+
+    requestAnimationFrame(() => {
       translateY.value = withTiming(0, { duration: 300 });
       overlayOpacity.value = withTiming(1, { duration: 300 });
-      setTimeout(() => titleRef.current?.focus(), 350);
-    } else {
-      translateY.value = withTiming(SHEET_HEIGHT, { duration: 200 });
-      overlayOpacity.value = withTiming(0, { duration: 200 });
+    });
+
+    const focusTimer = setTimeout(() => titleRef.current?.focus(), 350);
+    return () => clearTimeout(focusTimer);
+  }, [
+    visible,
+    rendered,
+    isEditing,
+    editingTodo,
+    initialDate,
+    initialCategoryId,
+    categories,
+    overlayOpacity,
+    translateY,
+  ]);
+
+  useEffect(() => {
+    if (!visible || !rendered) return;
+
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, () => {
+      isKeyboardVisible.current = true;
+    });
+
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      isKeyboardVisible.current = false;
+    });
+
+    const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleDismissRef.current();
+      return true;
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+      backSub.remove();
+    };
+  }, [visible, rendered]);
+
+  const handleDismiss = useCallback(() => {
+    if (isKeyboardVisible.current) {
+      Keyboard.dismiss();
+      return;
     }
-  }, [visible, isEditing, editingTodo, initialDate, initialCategoryId]);
+
+    if (title.trim() || description.trim()) {
+      Alert.alert('是否放弃编辑？', '当前内容尚未保存', [
+        { text: '继续编辑', style: 'cancel' },
+        { text: '放弃', style: 'destructive', onPress: onClose },
+      ]);
+    } else {
+      onClose();
+    }
+  }, [title, description, onClose]);
+
+  handleDismissRef.current = handleDismiss;
 
   const gesture = Gesture.Pan()
     .activeOffsetY([-10, 10])
@@ -106,51 +215,49 @@ export default function TaskSheet({
       }
     });
 
-  const sheetStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
-  }));
-
   const overlayStyle = useAnimatedStyle(() => ({
     opacity: overlayOpacity.value,
   }));
 
-  const handleDismiss = useCallback(() => {
-    if (title.trim() || description.trim()) {
-      Alert.alert('是否放弃编辑？', '当前内容尚未保存', [
-        { text: '继续编辑', style: 'cancel' },
-        { text: '放弃', style: 'destructive', onPress: onClose },
-      ]);
-    } else {
-      onClose();
-    }
-  }, [title, description, onClose]);
-
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!title.trim()) return;
-    if (isEditing && editingTodo) {
-      updateTodo(editingTodo.id, {
-        title: title.trim(),
-        description: description.trim(),
-        date,
-        categoryId,
-      });
-    } else {
-      addTodo({
-        title: title.trim(),
-        description: description.trim(),
-        date,
-        categoryId,
-        completed: false,
-      });
+
+    try {
+      if (isEditing && editingTodo) {
+        await updateTodo(editingTodo.id, {
+          title: title.trim(),
+          description: description.trim(),
+          date,
+          categoryId,
+        });
+      } else {
+        await addTodo({
+          title: title.trim(),
+          description: description.trim(),
+          date,
+          categoryId,
+          completed: false,
+        });
+      }
+
+      onSave();
+      onClose();
+    } catch (e: any) {
+      Alert.alert('保存失败', e.message || '请重试');
     }
-    onSave();
-    onClose();
   };
 
   const handleDelete = () => {
     Alert.alert('确定删除该任务？', '', [
       { text: '取消', style: 'cancel' },
-      { text: '删除', style: 'destructive', onPress: () => { onDelete?.(); onClose(); } },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: () => {
+          onDelete?.();
+          onClose();
+        },
+      },
     ]);
   };
 
@@ -158,18 +265,21 @@ export default function TaskSheet({
   const canSave = title.trim().length > 0 && !isDatePast;
   const category = categories.find((c) => c.id === categoryId);
 
+  if (!rendered) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="none">
+    <View style={styles.modalRoot} pointerEvents="box-none">
       <Animated.View style={[styles.overlay, overlayStyle]}>
         <Pressable style={styles.overlayPress} onPress={handleDismiss} />
       </Animated.View>
 
-      <GestureDetector gesture={gesture}>
-        <Animated.View style={[styles.sheet, sheetStyle, { paddingBottom: insets.bottom + 8 }]}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            keyboardVerticalOffset={0}
-          >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.sheetHost}
+        pointerEvents="box-none"
+      >
+        <GestureDetector gesture={gesture}>
+          <KeyboardAwareSheet translateY={translateY} bottomInset={insets.bottom}>
             <View style={styles.handle} />
 
             {isEditing && (
@@ -248,9 +358,9 @@ export default function TaskSheet({
                 <Check size={20} color={Colors.white} />
               </Pressable>
             </View>
-          </KeyboardAvoidingView>
-        </Animated.View>
-      </GestureDetector>
+          </KeyboardAwareSheet>
+        </GestureDetector>
+      </KeyboardAvoidingView>
 
       <DatePickerSheet
         visible={showDatePicker}
@@ -265,11 +375,16 @@ export default function TaskSheet({
         onSelect={setCategoryId}
         onClose={() => setShowCategoryPicker(false)}
       />
-    </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  modalRoot: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1000,
+    elevation: 1000,
+  },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: Colors.overlay,
@@ -277,11 +392,11 @@ const styles = StyleSheet.create({
   overlayPress: {
     flex: 1,
   },
+  sheetHost: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+  },
   sheet: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     backgroundColor: Colors.background,
     borderTopLeftRadius: Theme.borderRadius.card,
     borderTopRightRadius: Theme.borderRadius.card,

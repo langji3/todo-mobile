@@ -6,6 +6,8 @@ import {
   Pressable,
   Modal,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Check, Plus } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
@@ -47,8 +49,11 @@ export default function CategoryPickerSheet({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.overlay} onPress={onClose}>
-        <View style={styles.container} pointerEvents="box-none">
+      <KeyboardAvoidingView
+        style={styles.overlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <Pressable style={styles.backdrop} onPress={onClose}>
           <View style={styles.sheet}>
             {categories.map((cat: Category) => (
               <Pressable
@@ -95,8 +100,8 @@ export default function CategoryPickerSheet({
               </View>
             )}
           </View>
-        </View>
-      </Pressable>
+        </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -107,7 +112,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.overlay,
     justifyContent: 'flex-end',
   },
-  container: {
+  backdrop: {
     flex: 1,
     justifyContent: 'flex-end',
   },

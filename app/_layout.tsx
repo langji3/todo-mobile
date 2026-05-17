@@ -1,31 +1,50 @@
-import { useEffect } from 'react';
-import { Stack } from 'expo-router';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { Stack, Redirect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { TaskSheetProvider } from '@/contexts/TaskSheetContext';
-import { useTodoStore } from '@/store/useTodoStore';
-import { useUserStore } from '@/store/useUserStore';
+import { Colors } from '@/constants/colors';
+
+function RootNavigator() {
+  const { isLoading, isAuthenticated } = useAuth();
+
+  if (isLoading) {
+    return (
+      <View style={styles.loading}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(tabs)" redirect />
+        <Stack.Screen name="auth" />
+      </Stack>
+    );
+  }
+
+  return (
+    <TaskSheetProvider>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="auth" redirect />
+      </Stack>
+    </TaskSheetProvider>
+  );
+}
 
 export default function RootLayout() {
-  const initTodos = useTodoStore((s) => s.initMockData);
-  const initUser = useUserStore((s) => s.initMockData);
-
-  useEffect(() => {
-    initTodos();
-    initUser();
-  }, []);
-
   return (
     <SafeAreaProvider>
       <GestureHandlerRootView style={styles.container}>
         <StatusBar style="dark" />
-        <TaskSheetProvider>
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="(tabs)" />
-          </Stack>
-        </TaskSheetProvider>
+        <AuthProvider>
+          <RootNavigator />
+        </AuthProvider>
       </GestureHandlerRootView>
     </SafeAreaProvider>
   );
@@ -34,5 +53,11 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  loading: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
   },
 });

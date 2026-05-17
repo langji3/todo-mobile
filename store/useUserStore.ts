@@ -1,81 +1,50 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { User, AppSettings } from '@/types';
-import { MOCK_USER } from '@/constants/mock';
+import { AppSettings } from '@/types';
+import * as usersApi from '@/services/users';
 
-interface UserState {
-  user: User | null;
+interface SettingsState {
   settings: AppSettings;
-  initialized: boolean;
 }
 
-interface UserActions {
-  initMockData: () => void;
-  updateProfile: (updates: Partial<User>) => void;
-  updateAvatar: (avatarUri: string) => void;
-  toggleDarkMode: () => void;
-  toggleNotifications: () => void;
-  logout: () => void;
+interface SettingsActions {
+  fetchSettings: () => Promise<void>;
+  toggleSetting: (key: keyof AppSettings) => Promise<void>;
+  toggleDarkMode: () => Promise<void>;
+  toggleNotifications: () => Promise<void>;
 }
 
-export const useUserStore = create<UserState & UserActions>()(
-  persist(
-    (set, get) => ({
-      user: null,
-      settings: {
-        darkMode: false,
-        notifications: true,
-      },
-      initialized: false,
+export const useUserStore = create<SettingsState & SettingsActions>()((set, get) => ({
+  settings: {
+    darkMode: false,
+    notifications: true,
+  },
 
-      initMockData: () => {
-        if (get().initialized) return;
-        set({
-          user: MOCK_USER,
-          initialized: true,
-        });
-      },
-
-      updateProfile: (updates) => {
-        set((state) => ({
-          user: state.user ? { ...state.user, ...updates } : null,
-        }));
-      },
-
-      updateAvatar: (avatarUri) => {
-        set((state) => ({
-          user: state.user ? { ...state.user, avatar: avatarUri } : null,
-        }));
-      },
-
-      toggleDarkMode: () => {
-        set((state) => ({
-          settings: { ...state.settings, darkMode: !state.settings.darkMode },
-        }));
-      },
-
-      toggleNotifications: () => {
-        set((state) => ({
-          settings: { ...state.settings, notifications: !state.settings.notifications },
-        }));
-      },
-
-      logout: () => {
-        set({
-          user: null,
-          initialized: false,
-        });
-      },
-    }),
-    {
-      name: 'user-storage',
-      storage: createJSONStorage(() => AsyncStorage),
-      partialize: (state) => ({
-        user: state.user,
-        settings: state.settings,
-        initialized: state.initialized,
-      }),
+  fetchSettings: async () => {
+    try {
+      const s = await usersApi.getSettings();
+      set({ settings: s });
+    } catch {
+      // ignore
     }
-  )
-);
+  },
+
+  toggleSetting: async (key: keyof AppSettings) => {
+    const prev = get().settings;
+    const next = { ...prev, [key]: !prev[key] };
+    set({ settings: next });
+    try {
+      const updated = await usersApi.updateSettings({ [key]: next[key] });
+      set({ settings: updated });
+    } catch {
+      set({ settings: prev });
+    }
+  },
+
+  toggleDarkMode: async () => {
+    get().toggleSetting('darkMode');
+  },
+
+  toggleNotifications: async () => {
+    get().toggleSetting('notifications');
+  },
+}));
